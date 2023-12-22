@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en"
+      xmlns="http://www.w3.org/1999/xhtml" xmlns:th="https://www.thymeleaf.org" class="h-100">
+    <head>
+        <meta charset="utf-8">
+        <meta content="width=device-width, initial-scale=1, shrink-to-fit=no" name="viewport">
+        <meta name="description" content="Partage de carte JourneyMap">
+        <link rel="icon" href="/favicon.ico">
+        <title>Journey Map Share</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"
+              integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+                integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+    </head>
+    <body class="h-100 py-5 bg-body-secondary">
+        <div class="container h-100 d-flex flex-column align-items-center">
+            <h2 class="form-signin-heading">Partage de carte JourneyMap</h2>
+
+            <p class="lead">Outil qui permet de merger vos cartes avec celles des autres pour profiter d'une carte toujours plus explorée !</p>
+
+            <hr class="my-2">
+
+            <div>
+                Pour l'utiliser, il suffit de choisir le dossier contenant les données de la carte.
+            </div>
+            <div>
+                La dossier se trouve à <strong>%appdata%\.minecraft\journeymap\data\mp\</strong> (tu peux copier ce lien et le coller dans l'explorateur).
+            </div>
+            <div>
+                Le dossier contient au moins les deux sous-dossiers <strong>overworld</strong> et <strong>waypoints</strong> mais peut aussi contenir <strong>the_nether</strong>
+                et <strong>the_end</strong>.
+            </div>
+
+            <h6 class="mt-4 small">
+                Date de dernière modif : <span th:text="${modificationDate}"></span>
+            </h6>
+
+            <div id="not-valid" class="alert alert-danger d-none" role="alert">
+                Dossier invalide, t'es sûr que t'as bien lu la doc ?
+            </div>
+            <div id="error" class="alert alert-danger d-none" role="alert">
+                Une erreur inconnue s'est produite. :fauteagaetan:
+            </div>
+            <div id="invalid-folder" class="alert alert-danger d-none" role="alert">
+                Tu sais pas lire ? Ton zip est pas valide.
+            </div>
+            <div class="alert alert-success" role="alert" th:if="${merged}">
+                C'est bon, version mise à jour, tu peux télécharger la nouvelle version.
+            </div>
+
+            <div class=p-3>
+                <button id="upload" class="btn btn-lg btn-primary btn-block" type="button" onclick="getDir()">Choisir le dossier</button>
+                <div id="nb-files" class="alert alert-dark my-2 d-none" role="alert">
+                    0 fichier(s) trouvés
+                </div>
+                <button id="submit" class="btn btn-lg btn-primary btn-block d-none" onclick="send()">
+                    <span id="spinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+                    <span>Envoyer</span>
+                </button>
+            </div>
+
+            <a id="download" class="btn btn-lg btn-success btn-block mt-2" href="/maps.zip">Télécharger la version mergée</a>
+        </div>
+    </body>
+
+    <script src="/jszip.min.js"></script>
+    <script>
+      async function checkEligibility() {
+        try {
+          await window.showDirectoryPicker();
+        } catch (e) {
+          if (e instanceof TypeError) {
+            window.location.href = 'https://www.google.com/intl/fr_fr/chrome/';
+          }
+        }
+      }
+
+      checkEligibility();
+      const validFolders = ["overworld", "the_nether", "the_end", "waypoints"];
+      const notValidDiv = document.getElementById("not-valid");
+      const errorDiv = document.getElementById("error");
+      const invalidFolderDiv = document.getElementById("invalid-folder");
+      const submitButton = document.getElementById("submit");
+      const nbFilesDiv = document.getElementById("nb-files");
+      const spinner = document.getElementById("spinner");
+      const downloadButton = document.getElementById("download");
+      const uploadButton = document.getElementById("upload");
+      const subFolderRegex = new RegExp("^(-?\\d+|biome|day|night|topo)$");
+      const fileRegex = new RegExp("^-?\\d+,-?\\d+.png$");
+      const files = new Map();
+
+      async function getDir() {
+        files.clear();
+        notValidDiv.classList.add("d-none");
+        errorDiv.classList.add("d-none");
+        invalidFolderDiv.classList.add("d-none");
+        submitButton.classList.add("d-none");
+        nbFilesDiv.classList.add("d-none");
+        try {
+          const dirHandle = await window.showDirectoryPicker();
+
+          for await (const [folderName, folder] of dirHandle.entries()) {
+            if (folder.kind === 'directory') {
+              if (!validFolders.includes(folderName)) {
+                notValidDiv.classList.remove("d-none");
+                return;
+              } else {
+                for await (const [subFolderName, subFolder] of folder.entries()) {
+                  if (subFolder.kind === 'directory' && subFolderRegex.test(subFolderName)) {
+                    for await (const [fileName, file] of subFolder.entries()) {
+                      if (file.kind === 'file' && fileRegex.test(fileName)) {
+                        files.set(folderName + '/' + subFolderName + '/' + fileName, file);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          nbFilesDiv.textContent = files.size + ' fichier(s) trouvé(s)';
+          nbFilesDiv.classList.remove("d-none");
+
+          if (files.size > 0) {
+            submitButton.classList.remove("d-none");
+          }
+        } catch (e) {
+          console.log(e);
+          errorDiv.classList.remove("d-none");
+        }
+      }
+
+      async function send() {
+        errorDiv.classList.add("d-none");
+        invalidFolderDiv.classList.add("d-none");
+        submitButton.disabled = true;
+        uploadButton.disabled = true;
+        spinner.classList.remove("d-none");
+        try {
+          const zip = new JSZip();
+          for (const [name, file] of files) {
+            zip.file(name, await file.getFile());
+          }
+
+          files.clear();
+
+          zip.generateAsync({ type: "blob" }).then(blob => {
+            const formData = new FormData();
+            formData.append('file', blob, 'maps.zip');
+
+            return fetch("/merge", {
+              method: "POST",
+              body: formData,
+            });
+          }, function (err) {
+            console.error(err);
+            errorDiv.classList.remove("d-none");
+            submitButton.disabled = false;
+            uploadButton.disabled = false;
+            spinner.classList.add("d-none");
+          }).then(response => {
+            return response.text();
+          }).then(response => {
+            if (response !== 'ok') {
+              document.getElementById(response).classList.remove("d-none");
+            } else {
+              submitButton.classList.add("d-none");
+              nbFilesDiv.classList.add("d-none");
+              downloadButton.click();
+            }
+            submitButton.disabled = false;
+            uploadButton.disabled = false;
+            spinner.classList.add("d-none");
+          })
+        } catch (e) {
+          console.log(e);
+          errorDiv.classList.remove("d-none");
+          spinner.classList.add("d-none");
+          submitButton.disabled = false;
+          uploadButton.disabled = false;
+        }
+      }
+    </script>
+</html>
