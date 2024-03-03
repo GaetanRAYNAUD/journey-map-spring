@@ -8,6 +8,7 @@ import org.apache.commons.io.IOUtils;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -48,13 +49,13 @@ public class ZipService {
         }
     }
 
-    public void zipFolder(Path sourcePath, Path destPath, Predicate<Path> toZip) throws IOException {
-        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(destPath.toFile()))) {
-            zipFile(sourcePath, sourcePath, zos, toZip);
+    public void zipFolder(Path sourcePath, Path destPath) throws IOException {
+        try (ZipOutputStream zos = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(destPath.toFile())))) {
+            zipFile(sourcePath, sourcePath, zos);
         }
     }
 
-    private void zipFile(Path sourcePath, Path path, ZipOutputStream zipOut, Predicate<Path> toZip) throws IOException {
+    private void zipFile(Path sourcePath, Path path, ZipOutputStream zipOut) throws IOException {
         if (path.toFile().isHidden()) {
             return;
         }
@@ -62,21 +63,19 @@ public class ZipService {
         if (path.toFile().isDirectory()) {
             try (Stream<Path> stream = Files.list(path)) {
                 for (Path child : stream.toList()) {
-                    zipFile(sourcePath, child, zipOut, toZip);
+                    zipFile(sourcePath, child, zipOut);
                 }
             }
 
             return;
         }
 
-        if (toZip.test(path)) {
-            ZipEntry zipEntry = new ZipEntry(FilenameUtils.separatorsToUnix(sourcePath.relativize(path).toString()));
-            zipEntry.setLastModifiedTime(Files.getLastModifiedTime(path));
-            zipOut.putNextEntry(zipEntry);
+        ZipEntry zipEntry = new ZipEntry(FilenameUtils.separatorsToUnix(sourcePath.relativize(path).toString()));
+        zipEntry.setLastModifiedTime(Files.getLastModifiedTime(path));
+        zipOut.putNextEntry(zipEntry);
 
-            try (InputStream stream = Files.newInputStream(path)) {
-                IOUtils.copy(stream, zipOut, 1_000_000);
-            }
+        try (InputStream stream = Files.newInputStream(path)) {
+            IOUtils.copy(stream, zipOut, 1_000_000);
         }
     }
 

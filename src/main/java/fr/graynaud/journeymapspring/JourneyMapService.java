@@ -17,7 +17,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -48,11 +47,13 @@ public class JourneyMapService {
 
     private static final List<String> CONTENT_TYPES = List.of("application/zip", "application/x-zip-compressed");
 
-    private static final List<String> VALID_FOLDERS = List.of("overworld", "the_nether", "the_end", "waypoints");
+    private static final List<String> VALID_FOLDERS = List.of("overworld", "the_nether", "the_end", "waypoints", "addon-data", "allthemodium~mining",
+                                                              "allthemodium~the_beyond", "allthemodium~the_other");
 
     private static final Path TMP_ZIP = WORKING_DIR.resolveSibling("maps_tmp.zip");
 
-    private static final Predicate<String> PATTERN = Pattern.compile("^(overworld|the_nether|the_end)/(-?\\d+|biome|day|night|topo)/-?\\d+,-?\\d+.png$")
+    private static final Predicate<String> PATTERN = Pattern.compile(
+                                                                    "^(overworld|the_nether|the_end|addon-data|allthemodium~mining|allthemodium~the_beyond|allthemodium~the_other)/(-?\\d+|biome|day|night|topo)/-?\\d+,-?\\d+.png$")
                                                             .asMatchPredicate();
 
     public static final Path WORKING_ZIP = WORKING_DIR.resolveSibling("maps.zip");
@@ -103,7 +104,7 @@ public class JourneyMapService {
 
             AtomicInteger count = new AtomicInteger(0);
             CountDownLatch processedCount = new CountDownLatch(imagesPaths.entrySet().size());
-            imagesPaths.forEach((key, value) -> this.executor.submit(() -> {
+            imagesPaths.forEach((key, value) -> /*this.executor.submit(() -> */{
                 try {
                     if (mergeImages(key, value)) {
                         count.addAndGet(1);
@@ -114,7 +115,7 @@ public class JourneyMapService {
                 } finally {
                     processedCount.countDown();
                 }
-            }));
+            })/*)*/;
 
             processedCount.await();
 
@@ -125,9 +126,13 @@ public class JourneyMapService {
             log.info("Modified {} files", count.get());
 
             if (count.get() > 0) {
-                this.zipService.zipFolder(WORKING_DIR, TMP_ZIP, path -> true);
+                this.zipService.zipFolder(WORKING_DIR, TMP_ZIP);
                 FileUtils.copyFile(TMP_ZIP.toFile(), WORKING_ZIP.toFile());
+                log.info("Zipped all images");
             }
+        } catch (Exception e) {
+            log.error(e.getMessage(), e);
+            throw e;
         } finally {
             FileUtils.deleteQuietly(sourceZip.toFile());
             FileUtils.deleteQuietly(source.toFile());
@@ -170,6 +175,10 @@ public class JourneyMapService {
                                        .map(source -> source.resolve(imagePath).toFile())
                                        .collect(Collectors.toCollection(() -> new TreeSet<>(Comparator.comparing(File::lastModified).reversed())));
 
+        if (files.size() > 1 && (FileUtils.contentEquals(files.getFirst(), files.last()))) {
+            files.removeFirst();
+        }
+
         if (files.size() == 1) { //New file or uploaded is already the last version
             if (!Files.exists(JourneyMapService.WORKING_DIR.resolve(imagePath))) { //If not exists new file
                 log.info("Created: {}", imagePath);
@@ -185,14 +194,19 @@ public class JourneyMapService {
             File file = iterator.next();
             BufferedImage destImage = ImageIO.read(file);
 
+            if (destImage == null) {
+                log.error("An error occurred while processing image {}, ignoring this image", file.getName());
+                return false;
+            }
+
             Graphics2D graphics = destImage.createGraphics();
             graphics.setComposite(AlphaComposite.DstOver);
-            FileTime lastModif = Files.getLastModifiedTime(file.toPath());
+            long lastModif = file.lastModified();
 
             while (iterator.hasNext()) {
                 file = iterator.next();
                 graphics.drawImage(ImageIO.read(file), null, 0, 0);
-                lastModif = Files.getLastModifiedTime(file.toPath());
+                lastModif = file.lastModified();
             }
 
             graphics.dispose();
@@ -202,7 +216,7 @@ public class JourneyMapService {
             FileUtils.deleteQuietly(destFile);
 
             ImageIO.write(destImage, "PNG", destFile);
-            Files.setLastModifiedTime(destFile.toPath(), lastModif);
+            destFile.setLastModified(lastModif);
             log.info("Modified: {}", destFile);
             return true;
         }
